@@ -1,0 +1,195 @@
+### Base Variables
+@baseUrl = http://localhost:3000/api/v1
+
+### 1. Health Check
+GET http://localhost:3000/health
+
+### ====================================================
+### 1. AUTHENTICATION & REGISTRATION
+### ====================================================
+
+### 2. Public Registration (Creates STAFF by default)
+# @name registerStaff
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+    "name": "Sarah Connor",
+    "email": "sarah.staff@qflow.com",
+    "password": "password123"
+}
+
+### 3. Login as Staff User (Save token from response)
+# @name loginStaff
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "sarah.staff@qflow.com",
+    "password": "password123"
+}
+
+### Store Staff Token (Paste token here or use REST client response variable)
+@staffToken = {{loginStaff.response.body.token}}
+
+### 4. Login as Default Seeded Admin User
+# @name loginAdmin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "admin@qflow.com",
+    "password": "admin123"
+}
+
+### Store Admin Token
+@adminToken = {{loginAdmin.response.body.token}}
+
+### 5. Get Current User Profile (Staff Profile)
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{staffToken}}
+
+### 6. Get Current User Profile (Admin Profile)
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{adminToken}}
+
+### 7. Admin Creates Another Staff User (Admin-only endpoint)
+POST {{baseUrl}}/auth/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "name": "John Counter Agent",
+    "email": "john.agent@qflow.com",
+    "password": "password123",
+    "role": "STAFF"
+}
+
+### ====================================================
+### 2. ROLE-BASED ACCESS CONTROL (RBAC) ON QUEUES
+### ====================================================
+
+### 8. Unauthorized: Create Queue without Token (Returns 401)
+POST {{baseUrl}}/queues
+Content-Type: application/json
+
+{
+    "name": "General Inquiries",
+    "prefix": "GEN"
+}
+
+### 9. Forbidden: Staff Attempts to Create Queue (Returns 403 Forbidden)
+POST {{baseUrl}}/queues
+Authorization: Bearer {{staffToken}}
+Content-Type: application/json
+
+{
+    "name": "General Inquiries",
+    "prefix": "GEN"
+}
+
+### 10. Success: Admin Creates Billing Counter Queue (Returns 201 Created)
+POST {{baseUrl}}/queues
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "name": "Billing Counter",
+    "prefix": "BILL",
+    "description": "Cash and card payment processing"
+}
+
+### 11. Success: Admin Creates Doctor Consultation Queue (Returns 201 Created)
+POST {{baseUrl}}/queues
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "name": "Doctor Consultation",
+    "prefix": "DOC",
+    "description": "General physician checkup"
+}
+
+### 12. Public: Get All Queues with Live Waiting Counts
+GET {{baseUrl}}/queues
+
+### ====================================================
+### 3. PUBLIC CUSTOMER FLOW (No Authentication Required)
+### ====================================================
+
+### 13. Customer 1 (Alice) Joins Billing Queue -> WAITING
+POST {{baseUrl}}/tickets
+Content-Type: application/json
+
+{
+    "queue_id": 1,
+    "customer_name": "Alice Johnson"
+}
+
+### 14. Customer 2 (Bob) Joins Billing Queue -> WAITING
+POST {{baseUrl}}/tickets
+Content-Type: application/json
+
+{
+    "queue_id": 1,
+    "customer_name": "Bob Smith"
+}
+
+### 15. Customer 3 (Charlie) Joins Billing Queue -> WAITING
+POST {{baseUrl}}/tickets
+Content-Type: application/json
+
+{
+    "queue_id": 1,
+    "customer_name": "Charlie Brown"
+}
+
+### 16. Customer Checks Ticket Details & People Ahead
+GET {{baseUrl}}/tickets/1
+
+### 17. Customer Cancels Ticket 3 while Waiting
+# NOTE: Public ticket cancellation is a temporary limitation because tickets
+# are not yet associated with authenticated customer accounts.
+PATCH {{baseUrl}}/tickets/3/cancel
+
+### ====================================================
+### 4. PROTECTED QUEUE OPERATOR WORKFLOW (Staff / Admin)
+### ====================================================
+
+### 18. Unauthorized: Operator Calls Next without Token (Returns 401)
+POST {{baseUrl}}/tickets/next
+Content-Type: application/json
+
+{
+    "queue_id": 1
+}
+
+### 19. Staff Calls Next Ticket for Billing Queue (Alice: WAITING -> CALLED)
+POST {{baseUrl}}/tickets/next
+Authorization: Bearer {{staffToken}}
+Content-Type: application/json
+
+{
+    "queue_id": 1
+}
+
+### 20. Staff Starts Serving Ticket 1 (Alice: CALLED -> SERVING)
+PATCH {{baseUrl}}/tickets/1/start-serving
+Authorization: Bearer {{staffToken}}
+
+### 21. Staff Completes Ticket 1 (Alice: SERVING -> COMPLETED)
+PATCH {{baseUrl}}/tickets/1/complete
+Authorization: Bearer {{staffToken}}
+
+### 22. Staff Calls Next Ticket (Bob: WAITING -> CALLED)
+POST {{baseUrl}}/tickets/next
+Authorization: Bearer {{staffToken}}
+Content-Type: application/json
+
+{
+    "queue_id": 1
+}
+
+### 23. Staff Marks Ticket 2 as No-Show (Bob: CALLED -> NO_SHOW)
+PATCH {{baseUrl}}/tickets/2/no-show
+Authorization: Bearer {{staffToken}}
