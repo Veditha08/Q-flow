@@ -148,24 +148,38 @@ async function getTicketById(req, res) {
 
 // POST /api/v1/tickets/next - Select and call the next WAITING ticket for a queue (Staff/Admin)
 async function callNextTicket(req, res) {
+    const { queue_id } = req.body;
+
+    const queueId = parseInt(queue_id, 10);
+    if (!queueId || isNaN(queueId)) {
+        return res.status(400).json({
+            success: false,
+            error: "Valid 'queue_id' is required in request body.",
+        });
+    }
+
+    let client;
     try {
-        const { queue_id } = req.body;
+        client = await db.pool.connect();
+    } catch (poolErr) {
+        console.error("Error acquiring database client from pool:", poolErr);
+        return res.status(500).json({
+            success: false,
+            error: "Internal server error while connecting to database.",
+        });
+    }
 
-        const queueId = parseInt(queue_id, 10);
-        if (!queueId || isNaN(queueId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Valid 'queue_id' is required in request body.",
-            });
-        }
+    try {
+        await client.query("BEGIN");
 
-        // 1. Check if queue exists and is active
-        const queueResult = await db.query(
+        // 1. Check if queue exists and is active within the transaction
+        const queueResult = await client.query(
             "SELECT id, name, prefix, is_active FROM queues WHERE id = $1",
             [queueId]
         );
 
         if (queueResult.rows.length === 0) {
+            await client.query("ROLLBACK");
             return res.status(404).json({
                 success: false,
                 error: `Queue with ID ${queueId} does not exist.`,
@@ -174,22 +188,25 @@ async function callNextTicket(req, res) {
 
         const queue = queueResult.rows[0];
         if (!queue.is_active) {
+            await client.query("ROLLBACK");
             return res.status(400).json({
                 success: false,
                 error: `Queue '${queue.name}' is currently inactive.`,
             });
         }
 
-        // 2. Find the earliest WAITING ticket for this queue
-        const nextTicketResult = await db.query(
-            `SELECT * FROM tickets 
-             WHERE queue_id = $1 AND status = 'WAITING' 
-             ORDER BY sequence_number ASC 
-             LIMIT 1`,
-            [queueId]
-        );
+        // 2. Concurrency-safe: Lock and select the earliest WAITING ticket for this queue
+        const selectQuery = `
+            SELECT * FROM tickets 
+            WHERE queue_id = $1 AND status = 'WAITING' 
+            ORDER BY sequence_number ASC 
+            LIMIT 1
+            FOR UPDATE;
+        `;
+        const nextTicketResult = await client.query(selectQuery, [queueId]);
 
         if (nextTicketResult.rows.length === 0) {
+            await client.query("ROLLBACK");
             return res.status(404).json({
                 success: false,
                 error: `No waiting tickets found for queue '${queue.name}'.`,
@@ -198,14 +215,17 @@ async function callNextTicket(req, res) {
 
         const nextTicket = nextTicketResult.rows[0];
 
-        // 3. Update ticket status to CALLED
-        const updateResult = await db.query(
-            `UPDATE tickets 
-             SET status = 'CALLED', updated_at = CURRENT_TIMESTAMP 
-             WHERE id = $1 
-             RETURNING *;`,
-            [nextTicket.id]
-        );
+        // 3. Update ticket status to CALLED on the same connection
+        const updateQuery = `
+            UPDATE tickets 
+            SET status = 'CALLED', updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $1 
+            RETURNING *;
+        `;
+        const updateResult = await client.query(updateQuery, [nextTicket.id]);
+
+        // 4. Commit the transaction
+        await client.query("COMMIT");
 
         return res.status(200).json({
             success: true,
@@ -216,11 +236,22 @@ async function callNextTicket(req, res) {
             },
         });
     } catch (error) {
+        if (client) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (rollbackError) {
+                console.error("Error during transaction rollback:", rollbackError);
+            }
+        }
         console.error("Error calling next ticket:", error);
         return res.status(500).json({
             success: false,
             error: "Internal server error while calling next ticket.",
         });
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 }
 
