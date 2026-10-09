@@ -20,36 +20,14 @@ function generateToken(user) {
 }
 
 // POST /api/v1/auth/register - Public registration (always registers with role: STAFF)
-async function register(req, res) {
+async function register(req, res, next) {
     try {
         const { name, email, password } = req.body;
-
-        // 1. Validation
-        if (!name || typeof name !== "string" || name.trim() === "") {
-            return res.status(400).json({
-                success: false,
-                error: "'name' is required.",
-            });
-        }
-
-        if (!email || typeof email !== "string" || !email.includes("@")) {
-            return res.status(400).json({
-                success: false,
-                error: "A valid 'email' address is required.",
-            });
-        }
-
-        if (!password || typeof password !== "string" || password.length < 6) {
-            return res.status(400).json({
-                success: false,
-                error: "'password' is required and must be at least 6 characters long.",
-            });
-        }
 
         const cleanName = name.trim();
         const cleanEmail = email.trim().toLowerCase();
 
-        // 2. Check if email is already registered
+        // 1. Check if email is already registered
         const existingUser = await db.query("SELECT id FROM users WHERE email = $1", [cleanEmail]);
         if (existingUser.rows.length > 0) {
             return res.status(409).json({
@@ -58,7 +36,7 @@ async function register(req, res) {
             });
         }
 
-        // 3. Hash password and insert user (Staff role strictly enforced for public registration)
+        // 2. Hash password and insert user (Staff role strictly enforced for public registration)
         const hashedPassword = await bcrypt.hash(password, 10);
         const role = "STAFF";
 
@@ -70,7 +48,7 @@ async function register(req, res) {
         const result = await db.query(insertQuery, [cleanName, cleanEmail, hashedPassword, role]);
         const newUser = result.rows[0];
 
-        // 4. Generate JWT
+        // 3. Generate JWT
         const token = generateToken(newUser);
 
         return res.status(201).json({
@@ -80,26 +58,14 @@ async function register(req, res) {
             data: newUser,
         });
     } catch (error) {
-        console.error("Error in user registration:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error during registration.",
-        });
+        next(error);
     }
 }
 
 // POST /api/v1/auth/login - User login
-async function login(req, res) {
+async function login(req, res, next) {
     try {
         const { email, password } = req.body;
-
-        if (!email || !password) {
-            return res.status(400).json({
-                success: false,
-                error: "Both 'email' and 'password' are required.",
-            });
-        }
-
         const cleanEmail = email.trim().toLowerCase();
 
         // 1. Fetch user by email
@@ -142,16 +108,12 @@ async function login(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error during user login:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error during login.",
-        });
+        next(error);
     }
 }
 
 // GET /api/v1/auth/me - Get current logged-in user profile
-async function getMe(req, res) {
+async function getMe(req, res, next) {
     try {
         const userId = req.user.id;
         const userResult = await db.query(
@@ -171,25 +133,14 @@ async function getMe(req, res) {
             data: userResult.rows[0],
         });
     } catch (error) {
-        console.error("Error fetching current user profile:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while fetching profile.",
-        });
+        next(error);
     }
 }
 
 // POST /api/v1/auth/users - Admin-only endpoint to create Staff or Admin users
-async function createUser(req, res) {
+async function createUser(req, res, next) {
     try {
         const { name, email, password, role } = req.body;
-
-        if (!name || !email || !password) {
-            return res.status(400).json({
-                success: false,
-                error: "'name', 'email', and 'password' are required.",
-            });
-        }
 
         const targetRole = role && ["ADMIN", "STAFF"].includes(role.toUpperCase())
             ? role.toUpperCase()
@@ -220,11 +171,7 @@ async function createUser(req, res) {
             data: result.rows[0],
         });
     } catch (error) {
-        console.error("Error creating user (admin):", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while creating user.",
-        });
+        next(error);
     }
 }
 

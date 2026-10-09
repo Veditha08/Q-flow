@@ -2,6 +2,7 @@ const express = require("express");
 const queueRoutes = require("./routes/queue.routes");
 const ticketRoutes = require("./routes/ticket.routes");
 const authRoutes = require("./routes/auth.routes");
+const { notFoundHandler, errorHandler } = require("./middlewares/error.middleware");
 
 const app = express();
 
@@ -30,12 +31,10 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/queues", queueRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
 
-// 404 Route Handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        error: `Route not found: ${req.method} ${req.originalUrl}`,
-    });
-});
+// 404 Not Found Handler for unmatched routes
+app.use(notFoundHandler);
+
+// Centralized Error Handling Middleware (must be registered last)
+app.use(errorHandler);
 
 module.exports = app;

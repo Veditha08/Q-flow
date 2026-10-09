@@ -1,7 +1,7 @@
 const db = require("../../database/db");
 
 // GET /api/v1/queues - List all queues with active waiting ticket counts
-async function getAllQueues(req, res) {
+async function getAllQueues(req, res, next) {
     try {
         const queryText = `
             SELECT 
@@ -25,24 +25,14 @@ async function getAllQueues(req, res) {
             data: result.rows,
         });
     } catch (error) {
-        console.error("Error fetching queues:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while fetching queues.",
-        });
+        next(error);
     }
 }
 
 // GET /api/v1/queues/:id - Get single queue details
-async function getQueueById(req, res) {
+async function getQueueById(req, res, next) {
     try {
         const queueId = parseInt(req.params.id, 10);
-        if (isNaN(queueId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid queue ID. Must be a number.",
-            });
-        }
 
         const queryText = `
             SELECT 
@@ -72,32 +62,14 @@ async function getQueueById(req, res) {
             data: result.rows[0],
         });
     } catch (error) {
-        console.error("Error fetching queue by ID:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while fetching queue.",
-        });
+        next(error);
     }
 }
 
 // POST /api/v1/queues - Create a new queue
-async function createQueue(req, res) {
+async function createQueue(req, res, next) {
     try {
         const { name, prefix, description } = req.body;
-
-        if (!name || typeof name !== "string" || name.trim() === "") {
-            return res.status(400).json({
-                success: false,
-                error: "Queue 'name' is required.",
-            });
-        }
-
-        if (!prefix || typeof prefix !== "string" || prefix.trim() === "") {
-            return res.status(400).json({
-                success: false,
-                error: "Queue 'prefix' is required (e.g. 'BILL', 'REG', 'DOC').",
-            });
-        }
 
         const cleanName = name.trim();
         const cleanPrefix = prefix.trim().toUpperCase();
@@ -116,11 +88,7 @@ async function createQueue(req, res) {
             data: result.rows[0],
         });
     } catch (error) {
-        console.error("Error creating queue:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while creating queue.",
-        });
+        next(error);
     }
 }
 

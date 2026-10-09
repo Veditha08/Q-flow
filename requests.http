@@ -193,3 +193,34 @@ Content-Type: application/json
 ### 23. Staff Marks Ticket 2 as No-Show (Bob: CALLED -> NO_SHOW)
 PATCH {{baseUrl}}/tickets/2/no-show
 Authorization: Bearer {{staffToken}}
+
+### ====================================================
+### 5. VALIDATION & ERROR HANDLING TESTS (Milestone 5)
+### ====================================================
+
+### 24. Validation Error: Register missing name (Returns 400 Bad Request)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+    "email": "badrequest@qflow.com",
+    "password": "password123"
+}
+
+### 25. Validation Error: Create queue missing name (Returns 400 Bad Request)
+POST {{baseUrl}}/queues
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+    "prefix": "NONAME"
+}
+
+### 26. Validation Error: Invalid Queue ID format in route param (Returns 400 Bad Request)
+GET {{baseUrl}}/queues/not-a-number
+
+### 27. Validation Error: Invalid Ticket ID in route param (Returns 400 Bad Request)
+GET {{baseUrl}}/tickets/abc
+
+### 28. Centralized 404 Error: Unmatched route (Returns 404 Not Found)
+GET {{baseUrl}}/unknown/endpoint/path

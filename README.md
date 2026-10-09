@@ -33,6 +33,15 @@ A production-style backend queue and token management engine built with **Node.j
 - `PATCH /api/v1/tickets/:id/complete`: Finish serving ticket (`SERVING` → `COMPLETED`) (*Staff/Admin*).
 - `PATCH /api/v1/tickets/:id/no-show`: Mark called ticket as no-show when customer is absent (`CALLED` → `NO_SHOW`) (*Staff/Admin*).
 
+### 🛡️ Request Validation & Centralized Error Handling (Milestone 5)
+- **Input Validation Middleware**: Powered by `express-validator` with centralized formatting in `src/middlewares/validate.middleware.js`.
+- **Validation Rules**:
+  - `src/validators/auth.validator.js`: Validates registration, login, and user creation payloads with role protection.
+  - `src/validators/queue.validator.js`: Validates queue names, prefixes (length limits), and positive integer route IDs.
+  - `src/validators/ticket.validator.js`: Validates customer names, queue IDs, and positive integer route IDs.
+- **Centralized Error Middleware**: `src/middlewares/error.middleware.js` catches unhandled errors, formats JSON 400/404/500 responses safely without leaking internal SQL queries or stack traces.
+- **Malformed JSON Handling**: Intercepts `SyntaxError` from body-parser and returns a clean 400 response.
+
 ---
 
 ## 🛡️ Role & Permission Matrix
@@ -93,6 +102,8 @@ Q-flow/
 ├── .gitignore                 # Files to ignore in git
 ├── package.json               # Dependencies and run scripts
 ├── requests.http              # VS Code REST Client test requests
+├── test-concurrency.js        # Automated concurrency test suite
+├── test-validation.js         # Automated validation & error test suite
 │
 ├── database/
 │   ├── db.js                  # PostgreSQL pool connector
@@ -103,15 +114,21 @@ Q-flow/
     ├── app.js                 # Express application & route configuration
     ├── server.js              # Server entrypoint
     ├── middlewares/
-    │   └── auth.middleware.js # JWT authenticate & authorize middlewares
+    │   ├── auth.middleware.js     # JWT authenticate & authorize middlewares
+    │   ├── validate.middleware.js # express-validator error formatter
+    │   └── error.middleware.js    # 404 & Centralized 500 error handlers
+    ├── validators/
+    │   ├── auth.validator.js      # Auth endpoint validation rules
+    │   ├── queue.validator.js     # Queue endpoint validation rules
+    │   └── ticket.validator.js    # Ticket endpoint validation rules
     ├── routes/
-    │   ├── auth.routes.js     # Auth & user routes
-    │   ├── queue.routes.js    # Queue endpoint routes
-    │   └── ticket.routes.js   # Ticket endpoint routes
+    │   ├── auth.routes.js         # Auth & user routes
+    │   ├── queue.routes.js        # Queue endpoint routes
+    │   └── ticket.routes.js       # Ticket endpoint routes
     └── controllers/
-        ├── auth.controller.js  # Auth controller business logic
-        ├── queue.controller.js  # Queue controller business logic
-        └── ticket.controller.js # Ticket controller business logic
+        ├── auth.controller.js      # Auth controller business logic
+        ├── queue.controller.js     # Queue controller business logic
+        └── ticket.controller.js    # Ticket controller business logic
 ```
 
 ---
@@ -151,5 +168,19 @@ npm run db:init
 
 ---
 
-## 🧪 Testing the APIs
-Open [`requests.http`](requests.http) using the **REST Client** extension in VS Code to run the complete test suite including authentication, role enforcement, and the ticket lifecycle.
+## 🧪 Automated & Manual Testing
+
+- **Run all automated tests**:
+  ```bash
+  npm test
+  ```
+- **Run validation & error handling test suite**:
+  ```bash
+  npm run test:validation
+  ```
+- **Run concurrency & race condition test suite**:
+  ```bash
+  npm run test:concurrency
+  ```
+- **Manual API Testing**:
+  Open [`requests.http`](requests.http) using the **REST Client** extension in VS Code to run interactive HTTP requests.

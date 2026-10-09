@@ -1,25 +1,10 @@
 const db = require("../../database/db");
 
 // POST /api/v1/tickets - Join a queue and get a ticket (Public Customer)
-async function createTicket(req, res) {
+async function createTicket(req, res, next) {
     try {
         const { queue_id, customer_name } = req.body;
-
         const queueId = parseInt(queue_id, 10);
-        if (!queueId || isNaN(queueId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Valid 'queue_id' is required.",
-            });
-        }
-
-        if (!customer_name || typeof customer_name !== "string" || customer_name.trim() === "") {
-            return res.status(400).json({
-                success: false,
-                error: "'customer_name' is required.",
-            });
-        }
-
         const cleanCustomerName = customer_name.trim();
 
         // 1. Verify queue exists and is active
@@ -82,24 +67,14 @@ async function createTicket(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error creating ticket:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while issuing ticket.",
-        });
+        next(error);
     }
 }
 
 // GET /api/v1/tickets/:id - Get ticket details and people ahead (Public Customer)
-async function getTicketById(req, res) {
+async function getTicketById(req, res, next) {
     try {
         const ticketId = parseInt(req.params.id, 10);
-        if (isNaN(ticketId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid ticket ID. Must be a number.",
-            });
-        }
 
         const queryText = `
             SELECT 
@@ -138,35 +113,20 @@ async function getTicketById(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error fetching ticket:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while fetching ticket.",
-        });
+        next(error);
     }
 }
 
 // POST /api/v1/tickets/next - Select and call the next WAITING ticket for a queue (Staff/Admin)
-async function callNextTicket(req, res) {
+async function callNextTicket(req, res, next) {
     const { queue_id } = req.body;
-
     const queueId = parseInt(queue_id, 10);
-    if (!queueId || isNaN(queueId)) {
-        return res.status(400).json({
-            success: false,
-            error: "Valid 'queue_id' is required in request body.",
-        });
-    }
 
     let client;
     try {
         client = await db.pool.connect();
     } catch (poolErr) {
-        console.error("Error acquiring database client from pool:", poolErr);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while connecting to database.",
-        });
+        return next(poolErr);
     }
 
     try {
@@ -229,7 +189,7 @@ async function callNextTicket(req, res) {
 
         return res.status(200).json({
             success: true,
-            message: `Ticket ${updateResult.rows[0].ticket_number} called successfully.`,
+            message: `Ticket ${nextTicket.ticket_number} called successfully.`,
             data: {
                 ...updateResult.rows[0],
                 queue_name: queue.name,
@@ -243,11 +203,7 @@ async function callNextTicket(req, res) {
                 console.error("Error during transaction rollback:", rollbackError);
             }
         }
-        console.error("Error calling next ticket:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while calling next ticket.",
-        });
+        next(error);
     } finally {
         if (client) {
             client.release();
@@ -256,15 +212,9 @@ async function callNextTicket(req, res) {
 }
 
 // PATCH /api/v1/tickets/:id/start-serving - Start serving a called ticket (Staff/Admin: CALLED -> SERVING)
-async function startServingTicket(req, res) {
+async function startServingTicket(req, res, next) {
     try {
         const ticketId = parseInt(req.params.id, 10);
-        if (isNaN(ticketId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid ticket ID. Must be a number.",
-            });
-        }
 
         // 1. Fetch ticket
         const checkResult = await db.query(
@@ -310,24 +260,14 @@ async function startServingTicket(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error starting service for ticket:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while starting service for ticket.",
-        });
+        next(error);
     }
 }
 
 // PATCH /api/v1/tickets/:id/complete - Complete serving a ticket (Staff/Admin: SERVING -> COMPLETED)
-async function completeTicket(req, res) {
+async function completeTicket(req, res, next) {
     try {
         const ticketId = parseInt(req.params.id, 10);
-        if (isNaN(ticketId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid ticket ID. Must be a number.",
-            });
-        }
 
         // 1. Fetch ticket
         const checkResult = await db.query(
@@ -373,24 +313,14 @@ async function completeTicket(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error completing ticket:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while completing ticket.",
-        });
+        next(error);
     }
 }
 
 // PATCH /api/v1/tickets/:id/no-show - Mark a called ticket as no-show (Staff/Admin: CALLED -> NO_SHOW)
-async function markNoShowTicket(req, res) {
+async function markNoShowTicket(req, res, next) {
     try {
         const ticketId = parseInt(req.params.id, 10);
-        if (isNaN(ticketId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid ticket ID. Must be a number.",
-            });
-        }
 
         // 1. Fetch ticket
         const checkResult = await db.query(
@@ -436,26 +366,16 @@ async function markNoShowTicket(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error marking ticket as no-show:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while marking ticket as no-show.",
-        });
+        next(error);
     }
 }
 
 // PATCH /api/v1/tickets/:id/cancel - Cancel a waiting ticket (WAITING -> CANCELLED)
 // Note: Public ticket cancellation is a temporary limitation because tickets
 // are not yet associated with authenticated customer accounts. Customer ownership will be addressed later.
-async function cancelTicket(req, res) {
+async function cancelTicket(req, res, next) {
     try {
         const ticketId = parseInt(req.params.id, 10);
-        if (isNaN(ticketId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid ticket ID. Must be a number.",
-            });
-        }
 
         // 1. Check existing ticket status
         const checkResult = await db.query(
@@ -501,11 +421,7 @@ async function cancelTicket(req, res) {
             },
         });
     } catch (error) {
-        console.error("Error cancelling ticket:", error);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error while cancelling ticket.",
-        });
+        next(error);
     }
 }
 

@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:init": "node database/init-db.js",
-    "test:concurrency": "node test-concurrency.js"
+    "test:concurrency": "node test-concurrency.js",
+    "test:validation": "node test-validation.js",
+    "test": "node test-validation.js && node test-concurrency.js"
   },
   "keywords": [
     "queue",
@@ -21,6 +23,7 @@
     "bcryptjs": "^3.0.3",
     "dotenv": "^18.0.6",
     "express": "^5.2.1",
+    "express-validator": "^7.3.2",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.1"
   }
