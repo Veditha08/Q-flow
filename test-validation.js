@@ -416,6 +416,70 @@ async function runValidationAndErrorTestSuite() {
                 "Unexpected internal error returns safe HTTP 500 without leaking SQL details or stack traces"
             );
 
+            // ---------------------------------------------------------
+            // Test 11: CORS Configuration
+            // ---------------------------------------------------------
+            // Key distinction (beginner note):
+            //   • CORS is a *browser* safety net — it controls which web
+            //     origins a browser is allowed to read API responses from.
+            //   • Authentication (JWT) controls who the *user* is.
+            //   • They are completely independent layers.
+            //     A request from an allowed origin still needs a valid JWT
+            //     to access protected endpoints.
+            //   • Non-browser clients (curl, requests.http) are NOT affected
+            //     by CORS at all because they never send an Origin header.
+            console.log("\n--- 11. CORS Configuration ---");
+
+            const ALLOWED_ORIGIN = process.env.CLIENT_URL || "http://localhost:5173";
+            const BLOCKED_ORIGIN  = "http://evil-site.example.com";
+
+            // 11a. A request from the configured allowed origin gets the header.
+            const corsAllowedRes = await fetch(`http://localhost:${PORT}/health`, {
+                headers: { "Origin": ALLOWED_ORIGIN }
+            });
+            assert(
+                corsAllowedRes.headers.get("access-control-allow-origin") === ALLOWED_ORIGIN,
+                `Allowed origin '${ALLOWED_ORIGIN}' receives correct Access-Control-Allow-Origin header`
+            );
+
+            // 11b. Preflight OPTIONS from the allowed origin gets 204 with CORS headers.
+            const preflight = await fetch(`${baseUrl}/auth/login`, {
+                method: "OPTIONS",
+                headers: {
+                    "Origin": ALLOWED_ORIGIN,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "Content-Type, Authorization"
+                }
+            });
+            assert(
+                (preflight.status === 204 || preflight.status === 200) &&
+                preflight.headers.get("access-control-allow-origin") === ALLOWED_ORIGIN &&
+                preflight.headers.get("access-control-allow-methods") !== null,
+                `Preflight OPTIONS from allowed origin returns ${preflight.status} with CORS headers`
+            );
+
+            // 11c. An unapproved browser origin is rejected and NOT granted access.
+            const corsBlockedRes = await fetch(`http://localhost:${PORT}/health`, {
+                headers: { "Origin": BLOCKED_ORIGIN }
+            });
+            assert(
+                corsBlockedRes.status === 403,
+                `Disallowed origin '${BLOCKED_ORIGIN}' is rejected with HTTP 403 Forbidden`
+            );
+            // The server rejects the origin — either no ACAO header, or header does not match.
+            const blockedACAO = corsBlockedRes.headers.get("access-control-allow-origin");
+            assert(
+                blockedACAO !== BLOCKED_ORIGIN && blockedACAO !== "*",
+                `Disallowed origin '${BLOCKED_ORIGIN}' is NOT granted Access-Control-Allow-Origin`
+            );
+
+            // 11d. A non-browser call (no Origin header) still gets a response.
+            const noBrowserRes = await fetch(`http://localhost:${PORT}/health`);
+            assert(
+                noBrowserRes.status === 200,
+                "Request with no Origin header (non-browser client) receives normal 200 response"
+            );
+
             console.log("\n========================================================");
             console.log(`   TEST RESULTS: ${passedTests} Passed, ${failedTests} Failed`);
             if (failedTests === 0) {

@@ -1,48 +1,69 @@
 const db = require("../../database/db");
 
 // POST /api/v1/tickets - Join a queue and get a ticket (Public Customer)
+// Concurrency-safe: uses SELECT ... FOR UPDATE on the queue row so that two simultaneous
+// requests cannot read the same MAX(sequence_number) and produce a duplicate ticket number.
 async function createTicket(req, res, next) {
-    try {
-        const { queue_id, customer_name } = req.body;
-        const queueId = parseInt(queue_id, 10);
-        const cleanCustomerName = customer_name.trim();
+    const { queue_id, customer_name } = req.body;
+    const queueId = parseInt(queue_id, 10);
+    const cleanCustomerName = customer_name.trim();
 
-        // 1. Verify queue exists and is active
-        const queueCheck = await db.query(
-            "SELECT id, name, prefix, is_active FROM queues WHERE id = $1",
+    // Acquire a dedicated client from the pool so we can run a full transaction.
+    // Using the pool's shared `db.query()` helper would run each statement on a
+    // different connection, which would break the lock.
+    let client;
+    try {
+        client = await db.pool.connect();
+    } catch (poolErr) {
+        return next(poolErr);
+    }
+
+    try {
+        await client.query("BEGIN");
+
+        // 1. Lock the queue row for the duration of this transaction.
+        //    Any other concurrent createTicket request for the same queue_id will
+        //    block here until this transaction commits or rolls back.
+        //    This prevents two requests from reading the same MAX(sequence_number).
+        const queueResult = await client.query(
+            "SELECT id, name, prefix, is_active FROM queues WHERE id = $1 FOR UPDATE",
             [queueId]
         );
 
-        if (queueCheck.rows.length === 0) {
+        if (queueResult.rows.length === 0) {
+            await client.query("ROLLBACK");
             return res.status(404).json({
                 success: false,
                 error: `Queue with ID ${queueId} does not exist.`,
             });
         }
 
-        const queue = queueCheck.rows[0];
+        const queue = queueResult.rows[0];
         if (!queue.is_active) {
+            await client.query("ROLLBACK");
             return res.status(400).json({
                 success: false,
                 error: `Queue '${queue.name}' is currently inactive.`,
             });
         }
 
-        // 2. Generate next sequence number for this queue
-        const seqResult = await db.query(
+        // 2. Calculate the next sequence number while holding the lock.
+        //    Because we own the lock on the queue row, no other transaction for
+        //    the same queue can reach this point concurrently.
+        const seqResult = await client.query(
             "SELECT COALESCE(MAX(sequence_number), 0) + 1 AS next_seq FROM tickets WHERE queue_id = $1",
             [queueId]
         );
         const sequenceNumber = parseInt(seqResult.rows[0].next_seq, 10);
         const ticketNumber = `${queue.prefix}-${sequenceNumber}`;
 
-        // 3. Insert new ticket
+        // 3. Insert the ticket on the same connection (still inside the transaction).
         const insertQuery = `
             INSERT INTO tickets (queue_id, customer_name, ticket_number, sequence_number, status)
             VALUES ($1, $2, $3, $4, 'WAITING')
             RETURNING *;
         `;
-        const ticketResult = await db.query(insertQuery, [
+        const ticketResult = await client.query(insertQuery, [
             queueId,
             cleanCustomerName,
             ticketNumber,
@@ -50,7 +71,10 @@ async function createTicket(req, res, next) {
         ]);
         const createdTicket = ticketResult.rows[0];
 
-        // 4. Calculate current position in queue
+        // 4. Commit — releases the queue lock.
+        await client.query("COMMIT");
+
+        // 5. Calculate position (read-only, can use the shared pool helper).
         const posResult = await db.query(
             "SELECT COUNT(*)::int AS position FROM tickets WHERE queue_id = $1 AND status = 'WAITING' AND id <= $2",
             [queueId, createdTicket.id]
@@ -67,7 +91,16 @@ async function createTicket(req, res, next) {
             },
         });
     } catch (error) {
+        // Roll back on any failure so the queue lock is released immediately.
+        try {
+            await client.query("ROLLBACK");
+        } catch (rollbackErr) {
+            console.error("Error during createTicket transaction rollback:", rollbackErr);
+        }
         next(error);
+    } finally {
+        // Always release the client back to the pool, even on error.
+        client.release();
     }
 }
 

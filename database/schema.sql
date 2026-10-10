@@ -19,12 +19,16 @@ CREATE TABLE IF NOT EXISTS tickets (
     sequence_number INTEGER NOT NULL,
     status VARCHAR(20) DEFAULT 'WAITING', -- 'WAITING', 'CALLED', 'SERVING', 'COMPLETED', 'CANCELLED', 'NO_SHOW'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    -- Integrity safeguard: the application uses SELECT ... FOR UPDATE to prevent
+    -- duplicates, but this constraint is the last line of defence at the DB level.
+    CONSTRAINT uq_tickets_queue_sequence UNIQUE (queue_id, sequence_number)
 );
 
 -- Indexes for fast queue and status lookups
 CREATE INDEX IF NOT EXISTS idx_tickets_queue_status ON tickets(queue_id, status);
 CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON tickets(created_at);
+
 
 -- 3. Users Table (Milestone 3: Authentication & RBAC)
 CREATE TABLE IF NOT EXISTS users (
